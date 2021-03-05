@@ -1,0 +1,136 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font: 13px Helvetica, Arial; }
+      form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+      form input { border: 0; padding: 10px; width: 90%; margin-right: 0.5%; }
+      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 5px 10px; }
+      #messages li:nth-child(odd) { background: #eee; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+
+  </head>
+  <body>
+    <div id="videos" class="container">
+        <audio id="localVideo" class="vid" autoplay muted></audio>
+    </div>
+    
+    <script src="./simplepeer.min.js"></script>
+    <script>
+      let peers = {};
+      let socket;
+      let localStream;
+      let videos = document.getElementById('videos');
+      const configuration = {
+        "iceServers": [{
+                "urls": "stun:stun.l.google.com:19302"
+            },
+            {
+                url: 'turn:192.158.29.39:3478?transport=udp',
+                credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+                username: '28224511:1379330808'
+            }
+        ]
+      }
+
+      let constraints = {
+          audio: true,
+          // video: {
+          //     width: {
+          //         max: 300
+          //     },
+          //     height: {
+          //         max: 300
+          //     }
+          // }
+      }
+      // constraints.video.facingMode = {
+          // ideal: 'user'
+      // }
+
+      navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+          const localVideo = document.getElementById('localVideo');
+          localVideo.srcObject = stream;
+          localStream = stream;
+
+          init()
+
+      }).catch(e => alert(`getusermedia error ${e.name}`));
+
+
+      function init() {
+          socket = io(`https://stg-messaging.playerduo.com/outside?gameId=601a5282e914cc138c590876&gameRoomId=601b56e7bdb33099166929a5`, {
+            path: '/socket',
+          });
+
+        socket.on('initReceive', function(socketId) {
+          console.log('initReceive', socketId);
+          addPeer(socketId, false);
+
+          socket.emit('initSend', socketId);
+        });
+
+        socket.on('initSend', function(socketId) {
+          console.log('initSend', socketId);
+          addPeer(socketId, true);
+        });
+
+        socket.on('signal', function(data) {
+          const socketId = data.socketId;
+          const signal = data.signal;
+          
+          peers[socketId].signal(signal);
+        });
+
+        socket.on('error', function(error) {
+          console.log('error', error);
+        });
+
+        socket.on('removePeer', socketId => {
+          removePeer(socketId);
+        })
+      }
+
+      function removePeer(socketId) {
+          let videoEl = document.getElementById(socketId)
+          if (videoEl) {
+
+              const tracks = videoEl.srcObject.getTracks();
+
+              tracks.forEach(function (track) {
+                  track.stop()
+              })
+
+              videoEl.srcObject = null
+              videoEl.parentNode.removeChild(videoEl)
+          }
+          if (peers[socketId]) peers[socketId].destroy()
+          delete peers[socketId]
+      }
+
+      function addPeer(socketId, initiator) {
+        peers[socketId] = new SimplePeer({ stream: localStream, config: configuration, initiator });
+
+        peers[socketId].on('signal', data => {
+          socket.emit('signal', {
+            socketId: socketId,
+            signal: data
+          });
+        });
+
+        peers[socketId].on('stream', stream => {
+          let newVid = document.createElement('audio');
+          newVid.id = socketId;
+          newVid.autoplay = true;
+          newVid.srcObject = stream;
+          videos.appendChild(newVid);
+        });
+      }
+    </script>
+  </body>
+</html>
